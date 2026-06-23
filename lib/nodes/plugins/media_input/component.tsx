@@ -1,9 +1,11 @@
 'use client';
 
 import React, { memo, useCallback, useRef, useState, useEffect } from 'react';
+import { flushSync } from 'react-dom';
 import { NodeProps, useStore, useUpdateNodeInternals } from 'reactflow';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
+import { uploadApi } from '@/lib/api/client';
 import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
 import { LayoutGrid, Square, Check, Upload, Plus, X, Play, Music } from 'lucide-react';
 import GlassyLoader from '@/components/ui/GlassyLoader';
@@ -22,7 +24,6 @@ interface MediaInputNodeData {
 
 function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
     const [isDragOver, setIsDragOver] = useState(false);
-    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const [previewMode, setPreviewMode] = useState<'single' | 'grid'>('single');
     const [activeImageIndex, setActiveImageIndex] = useState(0);
@@ -111,10 +112,13 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
         if (isViewer) return;
         if (!files || files.length === 0 || !activeSessionId) return;
 
-        setIsUploading(true);
+        // Paint the "Uploading" overlay synchronously. handleFiles runs from the
+        // file input's *native* onchange (a detached input — see openFilePicker),
+        // so React 18 doesn't auto-flush this state update until the async work
+        // below yields, leaving the indicator blank for a beat. flushSync forces
+        // the overlay to commit now so it appears the instant a file is picked.
+        flushSync(() => setIsUploading(true));
         try {
-            const { uploadApi } = await import('@/lib/api/client');
-
             const uploadPromises = Array.from(files).map(async (file) => {
                 if (file.type.startsWith('image/') || file.type.startsWith('video/') || file.type.startsWith('audio/')) {
                     const result = await uploadApi.upload(file, {
@@ -140,23 +144,28 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
         }
     }, [activeSessionId, id, images, updateImages]);
 
-    // Handle file input change
-    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        handleFiles(e.target.files);
-        if (fileInputRef.current) {
-            fileInputRef.current.value = '';
-        }
-    };
-
-    // Open the native file picker. Clear the value first so picking the same
-    // file twice in a row still fires `change`.
+    // Open the native file picker.
+    //
+    // We build the <input> imperatively instead of clicking a hidden one
+    // rendered inside this node. The node lives in a ReactFlow canvas and
+    // re-renders constantly (hover, selection, live-collab cursors, the
+    // _isUploading flag, the resize effects). A React-tree-managed hidden file
+    // input nested inside such a node opens the OS picker fine but unreliably
+    // delivers its `change` event in Chromium — the selection silently never
+    // reaches `handleFiles`, so the picker "does nothing" while drag-drop (a
+    // separate EditorCanvas path) keeps working. A detached input is immune to
+    // node re-renders and event delegation, so `change` always fires.
     const openFilePicker = useCallback(() => {
         if (isViewer) return;
-        const input = fileInputRef.current;
-        if (!input) return;
-        input.value = '';
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*,video/*,audio/*';
+        input.multiple = true;
+        input.onchange = () => {
+            handleFiles(input.files);
+        };
         input.click();
-    }, [isViewer]);
+    }, [isViewer, handleFiles]);
 
     // Handle drag and drop
     const handleDragOver = (e: React.DragEvent) => {
@@ -461,22 +470,6 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                 {(isUploading || (data.config as any)?._isUploading === true) && <GlassyLoader label="Uploading" />}
             </div>
             )}
-
-            {/* Hidden file input */}
-            {/* Off-screen rather than `display:none`: a programmatically clicked
-                file input must stay rendered in the layout, or several browsers
-                (Safari/iOS, some webviews) never fire `change` after selection —
-                which is why drag-drop worked but the picker silently did nothing. */}
-            <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*,video/*,audio/*"
-                multiple
-                onChange={handleInputChange}
-                className="sr-only"
-                tabIndex={-1}
-                aria-hidden="true"
-            />
 
             {/* Image Lightbox — images/video only; audio uses its own player */}
             {lightboxOpen && !allAudio && images.length > 0 && (
