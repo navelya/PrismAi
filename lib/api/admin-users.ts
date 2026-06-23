@@ -42,6 +42,14 @@ export interface AdminSessionRow {
     deleted_at: string | null;
 }
 
+export interface AdminMessageRow {
+    id: string;
+    role: 'user' | 'assistant';
+    content: string | null;
+    images: string[];
+    created_at: string;
+}
+
 export interface AdminAssetRow {
     id: string;
     source_result_id: string;
@@ -115,6 +123,11 @@ export const adminUsersApi = {
     sessions: async (id: string, page = 0, pageSize = 25) => {
         const res = await fetch(`/api/admin/users/${id}/sessions${buildQuery({ page, pageSize })}`);
         return asJson<{ rows: AdminSessionRow[]; total: number; page: number; pageSize: number }>(res);
+    },
+
+    sessionMessages: async (id: string, sessionId: string) => {
+        const res = await fetch(`/api/admin/users/${id}/sessions/${sessionId}/messages`);
+        return asJson<{ rows: AdminMessageRow[] }>(res);
     },
 
     assets: async (id: string, page = 0, pageSize = 24) => {

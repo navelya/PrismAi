@@ -25,6 +25,8 @@ import {
     Film,
     Music,
     Box,
+    ChevronLeft,
+    ChevronRight,
 } from 'lucide-react';
 import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 import { AdjustTokensModal } from './AdjustTokensModal';
@@ -36,6 +38,7 @@ import {
     type AdminUserListRow,
     type AdminLedgerRow,
     type AdminSessionRow,
+    type AdminMessageRow,
     type AdminAssetRow,
     type BanDuration,
 } from '@/lib/api/admin-users';
@@ -142,6 +145,10 @@ export function UserDetailDrawer({ userId, initialUser, currentAdminId, onClose,
     const [assetsLoading, setAssetsLoading] = useState(false);
     const [sessions, setSessions] = useState<AdminSessionRow[]>([]);
     const [sessionsLoading, setSessionsLoading] = useState(false);
+    const [selectedSession, setSelectedSession] = useState<AdminSessionRow | null>(null);
+    const [sessionMessages, setSessionMessages] = useState<Record<string, AdminMessageRow[]>>({});
+    const [messagesLoading, setMessagesLoading] = useState(false);
+    const [messagesError, setMessagesError] = useState<string | null>(null);
 
     const [showAdjust, setShowAdjust] = useState(false);
     const [confirmBan, setConfirmBan] = useState<BanDuration | null>(null);
@@ -180,6 +187,9 @@ export function UserDetailDrawer({ userId, initialUser, currentAdminId, onClose,
             setLedgerRuns({});
             setAssets([]);
             setSessions([]);
+            setSelectedSession(null);
+            setSessionMessages({});
+            setMessagesError(null);
         }
     }, [open, fetchDetail, initialUser]);
 
@@ -189,6 +199,8 @@ export function UserDetailDrawer({ userId, initialUser, currentAdminId, onClose,
     useEffect(() => {
         if (!userId) return;
         let cancelled = false;
+
+        setSelectedSession(null);
 
         setLedgerLoading(true);
         setAssetsLoading(true);
@@ -269,6 +281,22 @@ export function UserDetailDrawer({ userId, initialUser, currentAdminId, onClose,
             setTimeout(() => setCopiedId(false), 1500);
         } catch { /* ignore */ }
     };
+
+    const openSession = useCallback((row: AdminSessionRow) => {
+        setSelectedSession(row);
+        setMessagesError(null);
+        if (!userId || sessionMessages[row.id]) return;
+        setMessagesLoading(true);
+        adminUsersApi.sessionMessages(userId, row.id)
+            .then(res => setSessionMessages(prev => ({ ...prev, [row.id]: res.rows })))
+            .catch(err => setMessagesError(err.message || 'Failed to load messages'))
+            .finally(() => setMessagesLoading(false));
+    }, [userId, sessionMessages]);
+
+    const backToSessions = useCallback(() => {
+        setSelectedSession(null);
+        setMessagesError(null);
+    }, []);
 
     return (
         <>
@@ -367,7 +395,18 @@ export function UserDetailDrawer({ userId, initialUser, currentAdminId, onClose,
                                     {tab === 'overview' && <OverviewTab user={user} banned={banned} />}
                                     {tab === 'tokens' && <TokensTab rows={ledger} runs={ledgerRuns} loading={ledgerLoading} />}
                                     {tab === 'assets' && <AssetsTab rows={assets} loading={assetsLoading} />}
-                                    {tab === 'sessions' && <SessionsTab rows={sessions} loading={sessionsLoading} />}
+                                    {tab === 'sessions' && (
+                                        <SessionsTab
+                                            rows={sessions}
+                                            loading={sessionsLoading}
+                                            selected={selectedSession}
+                                            messages={selectedSession ? sessionMessages[selectedSession.id] : undefined}
+                                            messagesLoading={messagesLoading}
+                                            messagesError={messagesError}
+                                            onSelect={openSession}
+                                            onBack={backToSessions}
+                                        />
+                                    )}
                                 </div>
 
                                 <footer className="border-t border-white/5 px-6 py-4 flex flex-wrap gap-2 bg-surface-primary/30">
@@ -628,21 +667,111 @@ function AssetsTab({ rows, loading }: { rows: AdminAssetRow[]; loading: boolean 
     );
 }
 
-function SessionsTab({ rows, loading }: { rows: AdminSessionRow[]; loading: boolean }) {
+function SessionsTab({
+    rows,
+    loading,
+    selected,
+    messages,
+    messagesLoading,
+    messagesError,
+    onSelect,
+    onBack,
+}: {
+    rows: AdminSessionRow[];
+    loading: boolean;
+    selected: AdminSessionRow | null;
+    messages: AdminMessageRow[] | undefined;
+    messagesLoading: boolean;
+    messagesError: string | null;
+    onSelect: (row: AdminSessionRow) => void;
+    onBack: () => void;
+}) {
+    if (selected) {
+        return (
+            <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={onBack}
+                        className="flex items-center gap-1 px-2 py-1.5 -ml-2 text-content-tertiary hover:text-content-primary rounded-lg hover:bg-white/5 transition-colors text-[10px] font-black uppercase tracking-widest"
+                    >
+                        <ChevronLeft className="w-3.5 h-3.5" /> Back
+                    </button>
+                    <div className="min-w-0">
+                        <div className="text-xs font-bold text-content-primary truncate">{selected.title ?? 'Untitled'}</div>
+                        <div className="text-[10px] text-content-tertiary font-mono">{formatDateTime(selected.created_at)}</div>
+                    </div>
+                </div>
+
+                {messagesLoading && !messages ? (
+                    <LoadingBlock />
+                ) : messagesError ? (
+                    <div className="p-3 rounded-xl bg-red-500/5 border border-red-500/20 text-red-400 text-xs font-medium">{messagesError}</div>
+                ) : !messages || messages.length === 0 ? (
+                    <EmptyBlock message="No messages in this session." />
+                ) : (
+                    <div className="space-y-3">
+                        {messages.map(m => (
+                            <div
+                                key={m.id}
+                                className={`p-3 rounded-xl border ${m.role === 'user' ? 'bg-accent-primary/5 border-accent-primary/15' : 'bg-white/5 border-white/10'}`}
+                            >
+                                <div className="flex items-center justify-between gap-2 mb-1.5">
+                                    <span className={`text-[9px] font-black uppercase tracking-widest ${m.role === 'user' ? 'text-accent-primary' : 'text-content-tertiary'}`}>
+                                        {m.role}
+                                    </span>
+                                    <span className="text-[9px] text-content-tertiary font-mono">{formatDateTime(m.created_at)}</span>
+                                </div>
+                                {m.content && (
+                                    <p className="text-xs text-content-primary whitespace-pre-wrap break-words">{m.content}</p>
+                                )}
+                                {m.images.length > 0 && (
+                                    <div className="grid grid-cols-3 gap-2 mt-2">
+                                        {m.images.map((url, i) => (
+                                            <a
+                                                key={`${m.id}-${i}`}
+                                                href={url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="relative aspect-square rounded-lg overflow-hidden bg-white/5 border border-white/10 hover:border-white/20 transition-all"
+                                            >
+                                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                <img src={url} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+                                            </a>
+                                        ))}
+                                    </div>
+                                )}
+                                {!m.content && m.images.length === 0 && (
+                                    <p className="text-[10px] text-content-tertiary italic">(no text)</p>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    }
+
     if (loading) return <LoadingBlock />;
     if (rows.length === 0) return <EmptyBlock message="No workflow sessions." />;
     return (
         <div className="space-y-2">
             {rows.map(row => (
-                <div key={row.id} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-white/5 border border-white/10">
+                <button
+                    key={row.id}
+                    onClick={() => onSelect(row)}
+                    className="w-full flex items-center justify-between gap-3 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all text-left"
+                >
                     <div className="min-w-0">
                         <div className="text-xs font-bold text-content-primary truncate">{row.title ?? 'Untitled'}</div>
                         <div className="text-[10px] text-content-tertiary mt-0.5 font-mono">{formatDateTime(row.created_at)}</div>
                     </div>
-                    {row.is_deleted && (
-                        <span className="px-2 py-0.5 bg-red-500/10 border border-red-500/20 text-red-400 text-[8px] font-black uppercase tracking-widest rounded-md shrink-0">Deleted</span>
-                    )}
-                </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                        {row.is_deleted && (
+                            <span className="px-2 py-0.5 bg-red-500/10 border border-red-500/20 text-red-400 text-[8px] font-black uppercase tracking-widest rounded-md">Deleted</span>
+                        )}
+                        <ChevronRight className="w-4 h-4 text-content-tertiary" />
+                    </div>
+                </button>
             ))}
         </div>
     );
